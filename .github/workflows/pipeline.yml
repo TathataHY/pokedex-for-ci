@@ -1,0 +1,103 @@
+name: Deployment Pipeline
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize]
+jobs:
+  avoid-duplicate-builds:
+    name: Avoid Duplicate Builds
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel Previous Runs
+        uses: styfle/cancel-workflow-action@0.11.0
+        with:
+          access_token: ${{ github.token }}
+
+  cache-dependencies:
+    name: Cache Dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "16.13.1"
+          cache: "npm"
+      - name: Install Dependencies
+        run: npm ci
+
+  # lint:
+  #   name: Lint
+  #   needs: [cache-dependencies]
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Lint
+  #       run: npm run eslint
+
+  build:
+    name: Build
+    needs: [cache-dependencies]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build
+        run: npm run build
+      - name: Artifacts Upload
+        uses: actions/upload-artifact@v3
+        with:
+          name: build
+          path: dist
+
+  test:
+    name: Test
+    needs: [cache-dependencies, build] #[cache-dependencies, lint, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Artifacts Download
+        uses: actions/download-artifact@v3
+        with:
+          name: build
+          path: dist
+      - name: Test
+        run: npm run test
+
+  e2e:
+    name: E2E
+    needs: [cache-dependencies, build] #[cache-dependencies, lint, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Artifacts Download
+        uses: actions/download-artifact@v3
+        with:
+          name: build
+          path: dist
+      - name: E2E Test
+        uses: cypress-io/github-action@v6
+        with:
+          start: npm run start:test
+          wait-on: http://localhost:5000
+          command: npm run test:e2e
+
+  # deploy:
+  #   name: Deploy
+  #   needs: [test, e2e]
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Deploy to Heroku
+  #       if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+  #       uses: akhileshns/heroku-deploy@v3.12.12
+  #       with:
+  #         heroku_api_key: ${{secrets.HEROKU_API_KEY}}
+  #         heroku_app_name: ${{secrets.HEROKU_APP_NAME}}
+  #         heroku_email: ${{secrets.HEROKU_EMAIL}}
+  #         healthcheck: "https://${{secrets.HEROKU_APP_NAME}}.herokuapp.com/health"
+  #         roolbackonhealthcheckfailed: true
+  #     # - name: Deploy to GitHub Pages
+  #     #   uses: peaceiris/actions-gh-pages@v3
+  #     #   with:
+  #     #     github_token: ${{ secrets.GITHUB_TOKEN }}
+  #     #     publish_dir: ./
